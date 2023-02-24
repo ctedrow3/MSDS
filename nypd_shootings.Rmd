@@ -1,0 +1,197 @@
+---
+title: "NYPD Shooting Incidents"
+date: "2023-02-18"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# NYPD Shooting Incident Data (Historical)  
+## Data Source and Summary  
+Sourcing data from City Of New York at: https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD
+The source data contains the incidents of shootings (both fatal and non-fatal) that occurred in New York City in the years from 2006 to 2021.  The data includes demographics of the perpetrators and victims as well as location data for the incident.
+
+## Goal of Analysis
+The goal of the analysis will be to understand the relationship of boroughs, victim's age/race/sex, and perpetrator's age/race/sex.  
+Analysis and visualization:  
+1. Determine number of shootings and murders per borough per year  
+2. Determine age/race/sex breakout of victims  
+3. Determine prevalence of young black males in incidents  
+
+## Download the data and summarize
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+global_echo = FALSE
+global_results = TRUE
+global_msgs = FALSE
+```
+```{r, fetch_the_data, echo=global_echo, results=global_results, message=global_msgs}
+library(tidyverse)
+library(lubridate)
+sourceURL <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+nypd_shootings <- read_csv(sourceURL)
+```
+# Tidy the data  
+## Initial view  
+Here is a brief look at the data set:  
+```{r, initial_look, echo=global_echo, results=global_results, message=global_msgs}
+head(nypd_shootings, 10)
+```
+## Column reformatting and conversion  
+Several fields need to reformatted or converted:  
+- The OCCUR_DATE field needs to be reformatted to a date range
+- Several fields are converted to factors
+- A column is added for the occurrence year
+- Two columns are added which sum the number of shootings and murders
+- The Incident key, precinct, jurisdiction, and location columns are dropped
+```{r, tidy_the_data, echo=global_echo, results=global_results, message=global_msgs}
+nypd_shootings_trim <- nypd_shootings
+nypd_shootings_trim$VIC_RACE[nypd_shootings_trim$VIC_RACE == 
+                               "AMERICAN INDIAN/ALASKAN NATIVE"] <- "AM INDIAN/AK NATIVE"
+nypd_shootings_trim$PERP_RACE[nypd_shootings_trim$PERP_RACE == 
+                               "AMERICAN INDIAN/ALASKAN NATIVE"] <- "AM INDIAN/AK NATIVE"
+nypd_shootings_trim <- nypd_shootings_trim %>%
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE)) %>%
+  mutate(BORO = as.factor(BORO)) %>%
+  mutate(STATISTICAL_MURDER_FLAG = as.factor(STATISTICAL_MURDER_FLAG)) %>%
+  mutate(PERP_AGE_GROUP = as.factor(PERP_AGE_GROUP)) %>%
+  mutate(PERP_SEX = as.factor(PERP_SEX)) %>%
+  mutate(PERP_RACE = as.factor(PERP_RACE)) %>%
+  mutate(VIC_AGE_GROUP = as.factor(VIC_AGE_GROUP)) %>%
+  mutate(VIC_SEX = as.factor(VIC_SEX)) %>%
+  mutate(VIC_RACE = as.factor(VIC_RACE)) %>%
+  mutate(OCCUR_YEAR = as.numeric(format(OCCUR_DATE, "%Y")))
+
+```
+Several columns are unnecessary for the analysis to follow.  These include the
+incident key, precinct, jurisdiction, and location data.  
+```{r, select_fields, echo=global_echo, results=global_results, message=global_msgs}
+nypd_shootings_trim <- nypd_shootings_trim %>%
+  select(OCCUR_DATE:BORO,STATISTICAL_MURDER_FLAG:VIC_RACE, OCCUR_YEAR)
+```
+## Initial Summary of Source Data
+```{r, initial_summary, echo=global_echo, results=global_results, message=global_msgs}
+summary(nypd_shootings_trim)
+```
+
+Note: Several fields are missing data or have "Unknown" as values.  These will be filtered out in the following analysis.  
+
+# Shootings and Murders per Borough  
+
+```{r, some_visuals, echo=global_echo, results=global_results, message=global_msgs}
+shootings_per_boro_and_year <- nypd_shootings_trim %>%  # Create
+  group_by(Borough = BORO, OCCUR_YEAR) %>%
+  summarize(numShootings = n()) %>%
+  ungroup()
+
+shootings_per_boro_and_year %>%                        # Plot
+  ggplot(aes(x = OCCUR_YEAR, y = numShootings )) +
+  geom_point(aes(color = Borough)) +
+  labs(title = "Number of shootings per year by borough", 
+       subtitle = "Including all races, ages, and sex", 
+       x = "Year", y = "Number of shootings")
+  
+murders_per_boro_and_year <- nypd_shootings_trim %>%  # Create
+  filter(STATISTICAL_MURDER_FLAG == "TRUE") %>%
+  group_by(Borough = BORO, OCCUR_YEAR) %>%
+  summarize(numMurders = n()) %>%
+  ungroup()
+
+murders_per_boro_and_year %>%                        # Plot
+  ggplot(aes(x = OCCUR_YEAR, y = numMurders )) +
+  geom_point(aes(color = Borough)) +
+  labs(title = "Number of murders per year by borough", 
+       subtitle = "Including all races, ages, and sex", 
+       x = "Year", y = "Number of murders")
+
+```
+
+# Breakout of Victims' Race, Age, and Sex
+```{r, racial_breakout, echo=global_echo, results=global_results, message=global_msgs}
+ras_set <- nypd_shootings_trim %>%                     # Define
+  group_by(Race = VIC_RACE, year = OCCUR_YEAR) %>%
+  summarize(numIncidents = n())
+
+ras_set %>%                                            # Plot
+  ggplot(aes(x = Race, y = numIncidents, fill = Race)) +
+    geom_bar(stat = "identity") +
+    labs(title = "Racial breakout of shooting victims", x = NULL, y = NULL) + 
+    theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+ras_set <- nypd_shootings_trim %>%                     # Define
+  group_by(Age = VIC_AGE_GROUP, year = OCCUR_YEAR) %>%
+  summarize(numIncidents = n())
+
+ras_set %>%                                            # Plot
+  ggplot(aes(x = Age, y = numIncidents, fill = Age)) +
+    geom_bar(stat = "identity") +
+    labs(title = "Age breakout of shooting victims", x = "Age Group", y=NULL) +
+    theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+ras_set <- nypd_shootings_trim %>%                    # Define
+  group_by(Sex = VIC_SEX, year = OCCUR_YEAR) %>%
+  summarize(numIncidents = n())
+
+ras_set %>%                                           # Plot
+  ggplot(aes(x = Sex, y = numIncidents, fill = Sex)) +
+    geom_bar(stat = "identity") +
+    labs(title = "Sex breakout of shooting victims", x = "Sex", y=NULL) +
+    theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+```
+# Comparing victims across races  
+```{r, comp_races, echo=global_echo, results=global_results, message=global_msgs}
+shootings_by_race <- nypd_shootings_trim %>%  # Create
+  filter(VIC_SEX == "M") %>%
+  filter(VIC_AGE_GROUP == "18-24" | VIC_AGE_GROUP == "25-44") %>%
+  group_by(Race = VIC_RACE, OCCUR_YEAR) %>%
+  summarize(numShootings = n()) %>%
+  ungroup()
+
+shootings_by_race %>%                        # Plot
+  ggplot(aes(x = OCCUR_YEAR, y = numShootings )) +
+  geom_point(aes(color = Race)) +
+  labs(title = "Comparison of victims races", 
+       subtitle = "Considering only males ages 18 to 44", x = "Year", y=NULL)
+
+```
+
+# Focusing on Black Males  
+```{r, other_analysis, echo=global_echo, results=global_results, message=global_msgs}
+
+
+BM_by_age <- nypd_shootings_trim %>%  # Create
+  filter(VIC_SEX == "M") %>%
+  filter(VIC_RACE == "BLACK" | VIC_RACE == "BLACK HISPANIC") %>%
+  group_by(Age = VIC_AGE_GROUP, OCCUR_YEAR) %>%
+  summarize(numShootings = n()) %>%
+  ungroup()
+
+BM_by_age %>%                        # Plot
+  ggplot(aes(x = OCCUR_YEAR, y = numShootings )) +
+  geom_point(aes(color = Age)) +
+  labs(title = "Number of Black Male victims per year by age", 
+       x = "Year", y = "Number of victims")
+
+BM_by_boro <- nypd_shootings_trim %>%  # Create
+  filter(VIC_SEX == "M") %>%
+  filter(VIC_RACE == "BLACK" | VIC_RACE == "BLACK HISPANIC") %>%
+  group_by(Borough = BORO, OCCUR_YEAR) %>%
+  summarize(numShootings = n()) %>%
+  ungroup()
+
+BM_by_boro %>%                        # Plot
+  ggplot(aes(x = OCCUR_YEAR, y = numShootings )) +
+  geom_point(aes(color = Borough)) +
+  labs(title = "Number of Black Male victims per year by borough", 
+       x = "Year", y = "Number of victims")
+
+```
+
+# Summary and Conclusions  
+This analysis has shown that the highest shooting and fatality rates are in Brooklyn, followed by the Bronx, though in 2021 the Bronx moved to the highest rate.  The analysis has also shown that the highest shooting victim rates are among Blacks, people ages 18 to 44, and males.  Focusing on Black males, the victims are most prevalent in the 25 to 44 year age bracket, with the 18-24 year bracket as a close second.  An interesting trend is the precipitous drop in shooting for 18 to 24 year-olds from 2014 to 2019.  
+The data and graphs raise many questions and ideas for additional analysis.  For example, 
+additional analysis could show who is committing these crimes in Brooklyn.  Or, if Black males are more at risk in certain boroughs than other racial/age/sex groups.  
+
+# Bias  
+There are many sources of bias in this data, especially in the source data itself.  Capturing age, sex, and race of both the perpetrator and the victim can be inaccurate and incomplete.  If the person who is supposed to be capturing the data has a certain bias against a certain race or age group, that person may be more likely or less likely to record the data or mis-record it.  As I analyzed the data, I knew that it was socially and politically charged.  It can even be weaponized if someone is trying to prove a point and only includes certain views or cross-sections of the data.
