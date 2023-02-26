@@ -1,45 +1,63 @@
 ---
-title: "COVID19"
+title: "Analysis of COVID-19 cases and deaths in the U.S."
 date: "2023-02-24"
-output: pdf_document
+output: 
+  pdf_document:
+    toc: true
+    toc_depth: 2
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# Introduction  
+## Data source  
+The data used in this analysis is provided by Johns Hopkins University Center
+for Systems Science and Engineering (JHU CSSE). It is connected with an article 
+in The Lancet titled "An interactive web-based dashboard to track COVID-19 in 
+real time" which can be found at: https://www.thelancet.com/journals/laninf/article/PIIS1473-3099(20)30120-1/fulltext.  
+The data repository is maintained for the 2019 Novel Coronavirus Visual Dashboard
+that is maintained by JHU CSSE.  The data files can be found at:
+https://github.com/CSSEGISandData/COVID-19.
+The data sets specifically used here come from the time series folder in the 
+repository and include both the U.S. confirmed case and death counts.
+
+## Retrieving the data  
 ```{r, get_the_data}
 library(tidyverse)
 url_root <- "https://github.com/CSSEGISandData/COVID-19/raw/master/csse_covid_19_data/csse_covid_19_time_series/"
-filenames <- c("time_series_covid19_confirmed_global.csv", "time_series_covid19_deaths_global.csv", "time_series_covid19_confirmed_US.csv", "time_series_covid19_deaths_US.csv")
+filenames <- c("time_series_covid19_confirmed_US.csv", "time_series_covid19_deaths_US.csv")
 urls <- str_c(url_root, filenames)
-init_global_cases <- read_csv(urls[1])
-init_global_deaths <- read_csv(urls[2])
-init_us_cases <- read_csv(urls[3])
-init_us_deaths <- read_csv(urls[4])
+init_us_cases <- read_csv(urls[1])
+init_us_deaths <- read_csv(urls[2])
 
 ```
 
+## Data description  
+The confirmed cases and COVID deaths data sets include daily listings starting
+in January 2020 and detailed per U.S. state and county.
+```{r, quick_view}
+head(init_us_cases, 10)
+head(init_us_deaths, 10)
+```
+
+## Goals of the analysis  
+Goals of this analysis include:  
+1.  Visualize the overall trend of confirmed cases and deaths  
+2.  Zoom in on a specific state to see its trend  
+3.  Determine the U.S. states with the highest and lowest rates  
+4.  Model the relationship between cases and deaths  
+5.  Visualize the total cases across the U.S. geographic regions and divisions  
+6.  Model the relationship between case rate and political bias  
+7.  Model the relationship between case rate and state GDP  
+
+## Pivoting and joining the data  
+The data is provided in "wide" format and is converted to "long" format here.
+Additionally, unnecessary columns are removed.  The confirmed cases and number
+of deaths combined into a single data frame so they can be analyzed together.
 ```{r, pivot_and_combine}
-global_cases <- init_global_cases %>%
-  pivot_longer(cols = -c( 'Province/State', 'Country/Region', Lat, Long),
-               names_to = "date",
-               values_to = "cases") %>%
-  select(-c(Lat, Long))
-
-global_deaths <- init_global_deaths %>%
-  pivot_longer(cols = -c('Province/State', 'Country/Region', Lat, Long),
-               names_to = "date",
-               values_to = "deaths") %>%
-  select(-c(Lat, Long))
-
 library(lubridate)
-global <- global_cases %>%
-  full_join(global_deaths) %>%
-  rename(Country_Region = 'Country/Region',
-         Province_State = 'Province/State') %>%
-  mutate(date = mdy(date))
-
 us_cases <- init_us_cases %>%
   pivot_longer(cols = -(UID:Combined_Key),
                names_to = "date",
@@ -58,24 +76,10 @@ us_deaths <- init_us_deaths %>%
 us <- us_cases %>%
   full_join(us_deaths)
 
-global <- global %>%
-  unite("Combined_Key",
-        c(Province_State, Country_Region),
-        sep = ", ",
-        na.rm = TRUE,
-        remove = FALSE)
-
-uidURL <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
-uid <- read_csv(uidURL) %>%
-  select(-c(Lat, Long_, Combined_Key, code3, iso2, iso3, Admin2))
-global <- global %>%
-  left_join(uid, by = c("Province_State", "Country_Region")) %>%
-  select(-c(UID, FIPS)) %>%
-  select(Province_State, Country_Region, date,
-         cases, deaths, Population,
-         Combined_Key)
 ```
 
+# Initial Analysis and Visualization  
+## Viewing U.S. totals  
 ```{r, US_by_state}
 US_by_state <- us %>%
   group_by(Province_State, Country_Region, date) %>%
@@ -106,19 +110,19 @@ US_totals %>%
   scale_y_log10() +
   theme(legend.position = "bottom",
         axis.text.x = element_text(angle = 90)) +
-  labs(title = "COVID-19 in US", y=NULL)
+  labs(title = "COVID-19 in the U.S. during the pandemic", y=NULL)
 ```
 
-```{r, eval_late_US}
-US_by_state <- US_by_state %>%
-  mutate(new_cases = cases - lag(cases),
-         new_deaths = deaths - lag(deaths))
+## Determining how infection spread over time  
+## Building out data by U.S. state  
+```{r, eval_US}
+ US_by_state <- US_by_state %>%
+   mutate(new_cases = cases - lag(cases),
+          new_deaths = deaths - lag(deaths))
 US_totals <- US_totals %>%
   mutate(new_cases = cases - lag(cases),
          new_deaths = deaths - lag(deaths))
 tail(US_totals %>% select(new_cases, new_deaths, everything()))
-```
-```{r, graph_new_cases_deaths_US}
 US_totals %>%
   ggplot(aes(x = date, y = new_cases)) +
   geom_line(aes(color = "new_cases")) +
@@ -128,7 +132,7 @@ US_totals %>%
   scale_y_log10() +
   theme(legend.position = "bottom",
         axis.text.x = element_text(angle = 90)) +
-  labs(title = "COVID-19 in US", y=NULL)
+  labs(title = "COVID-19 new cases and new deaths in the U.S.", y=NULL)
 
 state <- "New York"
 US_by_state %>%
@@ -144,6 +148,8 @@ US_by_state %>%
   labs(title = str_c("COVID-19 in ", state), y=NULL)
 
 ```
+
+## Normalizing cases and deaths by population
 ```{r, totals_by_state}
 US_state_totals <- US_by_state %>%
   group_by(Province_State) %>%
@@ -152,18 +158,208 @@ US_state_totals <- US_by_state %>%
             cases_per_thou = 1000 * cases / population,
             deaths_per_thou = 1000 * deaths / population) %>%
   filter(cases > 0, population > 0)
+```
+The following is a view of the 10 lowest states and 10 highest states as
+ranked by number of deaths per thousand.
+```{r view_per_thousand}
 US_state_totals %>% slice_min(deaths_per_thou, n=10) %>%
   select(deaths_per_thou, cases_per_thou, everything())
+
 US_state_totals %>% slice_max(deaths_per_thou, n=10) %>%
   select(deaths_per_thou, cases_per_thou, everything())
 ```
-
+## Predictive model for relationship between cases and deaths  
+The following visual shows the relationship between the number of deaths per
+thousand and cases per thousand.
 ```{r some_modeling}
 mod <- lm(deaths_per_thou ~ cases_per_thou, data = US_state_totals)
 summary(mod)
 US_tot_w_pred <- US_state_totals %>% mutate(pred = predict(mod))
 US_tot_w_pred %>% ggplot() +
   geom_point(aes(x = cases_per_thou, y = deaths_per_thou), color = "blue") +
-  geom_point(aes(x = cases_per_thou, y = pred), color = "red")
+  geom_point(aes(x = cases_per_thou, y = pred), color = "red") +
+  labs(title = "Predictive relationship between cases and deaths",
+       x = "Cases per Thousand", y = "Deaths per Thousand")
 ```
 
+# U.S. States by Region and Division
+The U.S. Census Bureau divides the U.S. geographically into four regions and
+nine divisions.  Here, the data is grouped and summarized into the cases and
+deaths per thousand per geographic region and division.
+```{r, regions_and_divisions}
+# Merge in the region / division data
+US_states_by_region_div <- read_csv("US_regions_and_divisions.csv")
+US_by_state <- US_by_state %>% rename("State" = "Province_State")
+US_by_state <- merge(US_by_state, US_states_by_region_div, by="State")
+
+# Combine the region and division columns
+US_by_state <- US_by_state %>%
+  #mutate(region = get_US_region[Province_State]) %>%
+  #mutate(division = get_US_division[Province_State]) %>%
+  #mutate(ABV = get_abv[Province_State]) %>%
+  unite("Region_Div",
+        Region:Division,
+        sep = ": ",
+        na.rm = TRUE,
+        remove = FALSE)
+
+US_by_state$Region_Div[US_by_state$Region_Div == ""] <- "Other"
+
+US_regionDiv_totals <- US_by_state %>%
+  group_by(Region_Div) %>%
+  summarize(deaths = max(deaths), cases = max(cases),
+            population = max(Population),
+            cases_per_thou = 1000 * cases / population,
+            deaths_per_thou = 1000 * deaths / population) %>%
+  filter(cases > 0, population > 0)
+
+US_regionDiv_totals %>%
+  ggplot(aes(x = Region_Div, y = cases_per_thou, fill = Region_Div)) +
+    geom_bar(stat = "identity") +
+    labs(title = "COVID total cases per thousand by U.S. region and dvision", 
+         x = NULL, y = "Cases per thousand") + 
+    theme(axis.text.x=element_blank(), axis.ticks.x=element_blank(),
+          legend.key.height = unit(0.5, 'cm'),
+          legend.key.width = unit(0.5, 'cm'))
+
+```
+The chart above shows that, when normalized by population, there was not a 
+significant amount of variation across geographic regions and divisions.
+# Using 2020 Presidential Election results  
+The results of the 2020 presidential election are available through many sources
+online.  One example is here, https://www.cookpolitical.com/2020-national-popular-vote-tracker.
+The following examines the relationship between case and deaths rates and the
+popular vote results.  Specifically, it looks at how states fared that voted
+more or less Democratic (voted for Joe Biden).
+```{r, pres_election}
+US_state_totals_w_geopol <- US_state_totals %>% rename("State" = "Province_State")
+US_state_totals_w_geopol <- merge(US_state_totals_w_geopol, US_states_by_region_div, by="State")
+US_state_totals_w_geopol <- US_state_totals_w_geopol %>%
+  unite("Region_Div",
+        Region:Division,
+        sep = ": ",
+        na.rm = TRUE,
+        remove = FALSE)
+
+election_results <- read_csv("2020presgeresults.csv")
+election_results <- election_results %>% drop_na()
+US_state_totals_w_geopol <- merge(US_state_totals_w_geopol, election_results, by="ABV")
+
+US_state_totals_w_geopol <- US_state_totals_w_geopol %>%
+  mutate(DemVotes = BIDEN/TotalVotes) %>%
+  drop_na()
+
+US_state_totals_w_geopol %>%
+  ggplot(aes(x = DemVotes, y = cases_per_thou)) +
+  geom_line(aes(color = "cases")) +
+  geom_point(aes(color = "cases")) +
+  geom_line(aes(y = deaths_per_thou, color = "deaths")) +
+  geom_point(aes(y = deaths_per_thou, color = "deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "Cases & Deaths according to how Democratic the vote", 
+       x = "Number of Voters who voted for Democrat (Biden)", y=NULL)
+
+```
+# Model of Election Data  
+```{r, case_and_death_model}
+case_model <- lm(cases_per_thou ~ DemVotes, data = US_state_totals_w_geopol)
+summary(case_model)
+case_pred <- US_state_totals_w_geopol %>% mutate(pred = predict(case_model))
+case_pred %>% ggplot() +
+  geom_point(aes(x = DemVotes, y = cases_per_thou), color = "blue") +
+  geom_point(aes(x = DemVotes, y = pred), color = "red") +
+  scale_x_continuous(labels = scales::percent) +
+  labs(title = "Relationship between 2020 election party bias and COVID cases", 
+       x = "Number of Voters who voted for Democrat (Biden)", y = "Cases per thousand") + 
+  theme(legend.position = "bottom")
+
+death_model <- lm(deaths_per_thou ~ DemVotes, data = US_state_totals_w_geopol)
+summary(death_model)
+death_pred <- US_state_totals_w_geopol %>% mutate(pred = predict(death_model))
+death_pred %>% ggplot() +
+  geom_point(aes(x = DemVotes, y = deaths_per_thou), color = "blue") +
+  geom_point(aes(x = DemVotes, y = pred), color = "red") +
+  scale_x_continuous(labels = scales::percent) +
+  labs(title = "Relationship between 2020 election party bias and COVID deaths", 
+       x = "Number of Voters who voted for Democrat (Biden)", y = "Cases per thousand") + 
+  theme(legend.position = "bottom")
+  
+
+```
+
+# Economic base  
+
+The GDP per state and GDP per capita per state is available in many places online
+such as at: https://www.statista.com/statistics/248063/per-capita-us-real-gross-domestic-product-gdp-by-state/.  Here, the analysis looks at the COVID case and death rates in
+relation to state GDP.  The top 10 and lowest 10 states are examined to see if
+richer or poorer states fared better or worse through the pandemic.
+```{r, econ_base}
+top_states_by_gdp <- as.factor(
+  c("California", "Texas", "New York", "Florida", "Illinois", 
+    "Pennsylvania", "Ohio", "Washington", "Georgia", "New Jersey"))
+bottom_states_by_gdp <- as.factor(
+  c("West Virginia", "Delaware", "Maine", "Rhode Island", "North Dakota",
+    "South Dakota", "Montana", "Alaska", "Wyoming", "Vermont"))
+top_states_gdp_per_capita <- as.factor(
+  c("New York", "Massachusetts", "Washington", "Connecticut", "California",
+    "Delaware", "Illinois", "Aalska", "Maryland", "North Dakota"))
+bottom_states_gdp_per_capita <- as.factor(
+  c("Maine", "Montana", "New Mexico", "Kentucky", "South Carolina", 
+    "Idaho", "Alabama", "Arkansas", "West Virginia", "Mississippi"))
+top_states_df <- data.frame(GDP_Rank = c(1:10), State = top_states_by_gdp)
+bottom_states_df <- data.frame(GDP_Rank = c(41:50), State = bottom_states_by_gdp)
+states_by_gdp <- rbind(top_states_df, bottom_states_df)
+
+US_state_totals_w_econ <- US_state_totals %>% rename("State" = "Province_State")
+US_state_totals_w_econ <- merge(US_state_totals_w_econ, states_by_gdp, by="State")
+
+US_state_totals_w_econ %>%
+  ggplot(aes(x = GDP_Rank, y = cases_per_thou, fill = GDP_Rank)) +
+    geom_bar(stat = "identity") +
+    labs(title = "COVID total cases per thousand by state's GDP Rank", 
+         x = NULL, y = "Cases per thousand") +
+     scale_x_continuous(breaks = seq(from = 0, to = 2.5, by = 0.25)) +
+    theme(legend.position = "bottom",
+          axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+```
+
+## Predictive model for relationship between GDP and COVID case rate  
+```{r, econ_model}
+econ_model <- lm(cases_per_thou ~ GDP_Rank, data = US_state_totals_w_econ)
+summary(econ_model)
+econ_pred <- US_state_totals_w_econ %>% mutate(pred = predict(econ_model))
+econ_pred %>% ggplot() +
+  geom_point(aes(x = GDP_Rank, y = cases_per_thou), color = "blue") +
+  geom_point(aes(x = GDP_Rank, y = pred), color = "red") +
+  #scale_x_continuous(breaks = c(1:10, 41:50)) +
+  labs(title = "Relationship between state GDP Rank and COVID cases", 
+       x = "GDP Rank", y = "Cases per thousand") + 
+  theme(legend.position = "bottom")
+
+```
+The above chart and model show that there is essentially no relationship
+between case and deaths rates with respect to state GDP.
+
+# Conclusion  
+## Summary  
+This analysis has found that the number of cases of COVID initially skyrocketed 
+but has largely flattened out over the past year.  The rates in New York are very
+similar to the rest of the country.  There is a loose relationship between the
+number of confirmed cases and the death rate.
+Looking at the data geographically, the cases per thousand were slightly higher 
+in some the South Region's divisions, notably the division containing Kentucky, 
+Tennessee, Mississippi, and Alabama.
+Using data from the 2020 Presidential election, a weak political bias can be
+seen in which states that lean more Democratic and less Republican were likely
+to have somewhat lower confirmed cases and deaths.  Finally, the analysis has
+shown that a state's GDP is a weak indicator of case rates.  Specifically, lower
+GDPs also have lower case rates.
+
+## Sources of Bias  
+Sources of bias in COVID reporting data have been heavily discussed in the media.
+There is inconsistency across states and hospitals as to when and how COVID is 
+reported.  For example, listing a COVID death when there is a co-morbidity has
+been a key controversy.  
